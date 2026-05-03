@@ -13,7 +13,7 @@ pyarrow==15.0.0            # Lecture/écriture de fichiers Parquet (stockage com
 matplotlib==3.8.0          # Création de graphiques statiques (courbes, histogrammes, etc.)
 seaborn==0.13.0            # Visualisation statistique basée sur matplotlib (plus esthétique)
 plotly==5.19.0             # Graphiques interactifs (dashboards, zoom, hover)
-folium==0.15.0             # Cartes géographiques interactives (utilise Leaflet + coordonnées GPS)
+folium==0.16.0             # Cartes géographiques interactives (utilise Leaflet + coordonnées GPS)
 
 # =========================
 # Machine Learning
@@ -25,8 +25,8 @@ numpy==1.26.0             # Calcul scientifique et manipulation de tableaux mult
 # NLP / Sentiment Analysis
 # =========================
 textblob==0.18.0          # Analyse de sentiment et traitement simple du langage naturel
-transformers==4.38.0      # Modèles NLP avancés pré-entraînés (Hugging Face)
-torch==2.2.0              # Backend des modèles deep learning (PyTorch)
+# transformers==4.38.0      # Modèles NLP avancés pré-entraînés (Hugging Face)
+# torch==2.2.0              # Backend des modèles deep learning (PyTorch)
 
 # =========================
 # Dashboard
@@ -37,8 +37,8 @@ streamlit-folium==0.18.0  # Intégration de cartes Folium dans Streamlit
 # =========================
 # Qualité des données & profiling
 # =========================
-pandas-profiling==4.0.0   # Génération automatique de rapports d’analyse de données
-# (alternative moderne : ydata-profiling)
+ydata-profiling==4.8.3   # Génération automatique de rapports d’analyse de données
+# (alternative moderne à pandas-profiling)
 
 # =========================
 # Utilitaires
