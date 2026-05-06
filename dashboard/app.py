@@ -1,179 +1,590 @@
+# dashboard/app.py
+# Dashboard Streamlit — Bénin Insights Challenge
+# Lancement : streamlit run dashboard/app.py
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
-import numpy as np
+import os
+from pathlib import Path
+from datetime import date
 
-st.set_page_config(page_title="Bénin Insights Dashboard", page_icon="🇧🇯", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(
+    page_title="Bénin Insights 2025",
+    page_icon="🌍",
+    layout="wide",
+)
 
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500&display=swap');
-.stApp{background-color:#0D0D0D;font-family:'DM Sans',sans-serif;}
-[data-testid="stSidebar"]{background-color:#111111;border-right:1px solid #1D9E75;}
-[data-testid="stSidebar"] *{color:#E8E8E6 !important;}
-.hero-title{font-family:'Playfair Display',serif;font-size:3rem;font-weight:900;color:#FFFFFF;line-height:1.1;margin:0;}
-.hero-accent{color:#1D9E75;}
-.hero-sub{font-size:1rem;color:#888780;font-weight:300;margin-top:0.5rem;letter-spacing:0.05em;text-transform:uppercase;}
-.kpi-card{background:#161616;border:1px solid #222;border-top:3px solid #1D9E75;border-radius:8px;padding:1.25rem 1.5rem;margin-bottom:1rem;}
-.kpi-value{font-family:'Playfair Display',serif;font-size:2.2rem;font-weight:700;color:#1D9E75;margin:0;line-height:1;}
-.kpi-label{font-size:0.78rem;color:#888780;text-transform:uppercase;letter-spacing:0.08em;margin-top:0.4rem;}
-.kpi-delta{font-size:0.85rem;color:#E8E8E6;margin-top:0.3rem;}
-.section-title{font-family:'Playfair Display',serif;font-size:1.4rem;color:#FFFFFF;margin-bottom:0.2rem;}
-.section-line{width:40px;height:3px;background:#1D9E75;margin-bottom:1.2rem;border:none;}
-.insight-box{background:#161616;border-left:3px solid #1D9E75;border-radius:0 6px 6px 0;padding:1rem 1.25rem;margin-top:0.75rem;font-size:0.9rem;color:#C8C8C6;line-height:1.6;}
-.insight-box strong{color:#1D9E75;}
-.custom-divider{border:none;border-top:1px solid #222;margin:2rem 0;}
-</style>
-""", unsafe_allow_html=True)
+# ── CHEMINS ───────────────────────────────────────────────────────────────────
 
-@st.cache_data
-def generer_donnees_demo():
-    rng = np.random.default_rng(42)
-    n = 8500
-    dates = pd.date_range('2025-04-01', '2026-04-30', periods=n)
-    pays_codes = ['FR','US','NG','GB','SN','CI','GH','TG','DE','CN','MA','CM','NE','BF','ML','ZA','BE','CA','RU','BR']
-    pays_raw = np.array([22,18,12,8,6,5,4,4,4,3,2,2,2,2,1,1,1,1,1,1],dtype=float)
-    pays_p = pays_raw / pays_raw.sum()
-    event_codes = ['01','02','03','04','05','06','07','10','11','12','13','14','17','19']
-    event_raw = np.array([18,14,12,10,9,8,6,5,5,4,4,3,1,1],dtype=float)
-    event_p = event_raw / event_raw.sum()
-    lieux = {'Cotonou':(6.365,2.419),'Porto-Novo':(6.497,2.628),'Parakou':(9.337,2.628),
-             'Abomey-Calavi':(6.449,2.356),'Natitingou':(10.303,1.381),'Bohicon':(7.178,2.066),
-             'Kandi':(11.134,2.937),'Ouidah':(6.353,2.084),'Lokossa':(6.644,1.718),'Djougou':(9.709,1.665)}
-    lieux_list = list(lieux.keys())
-    lieux_raw = np.array([38,15,12,10,5,5,5,4,3,3],dtype=float)
-    lieux_p = lieux_raw / lieux_raw.sum()
-    lc = rng.choice(lieux_list, n, p=lieux_p)
-    lats = [lieux[l][0]+rng.normal(0,0.05) for l in lc]
-    lons = [lieux[l][1]+rng.normal(0,0.05) for l in lc]
-    gb = rng.normal(-0.8,3.2,n); ab = rng.normal(-2.1,4.5,n)
-    mask = (dates>='2025-10-01')&(dates<='2025-10-31')
-    gb[mask]+=rng.normal(-2,1,mask.sum()); ab[mask]+=rng.normal(-3,1.5,mask.sum())
-    df = pd.DataFrame({'date':dates,'Actor1CountryCode':rng.choice(pays_codes,n,p=pays_p),
-        'EventRootCode':rng.choice(event_codes,n,p=event_p),'GoldsteinScale':np.clip(gb,-10,10),
-        'AvgTone':np.clip(ab,-15,15),'NumArticles':rng.integers(1,45,n),
-        'ActionGeo_FullName':lc,'ActionGeo_Lat':lats,'ActionGeo_Long':lons})
-    df['mois'] = df['date'].dt.to_period('M').astype(str)
-    return df
+ROOT_DIR    = Path(__file__).resolve().parent.parent
+ASSETS_DIR  = Path(__file__).resolve().parent / "assets"
+OUTPUTS_DIR = ROOT_DIR / "outputs"
+
+# ── CONSTANTES ────────────────────────────────────────────────────────────────
+
+LABELS_TON = {
+    "tres_negatif": "Très négatif",
+    "negatif":      "Négatif",
+    "neutre":       "Neutre",
+    "positif":      "Positif",
+    "tres_positif": "Très positif",
+}
+
+LABELS_QUAD = {
+    "cooperation_verbale":    "Coopération (verbale)",
+    "cooperation_materielle": "Coopération (matérielle)",
+    "conflit_verbal":         "Conflit (verbal)",
+    "conflit_materiel":       "Conflit (matériel)",
+}
+
+LABELS_ZONES = {"nord": "Nord", "centre": "Centre", "sud": "Sud"}
+
+NOMS_PAYS = {
+    "NGA": "Nigeria",
+    "AFR": "Afrique (générique)",
+    "FRA": "France",
+    "WAF": "Afrique de l'Ouest",
+    "NER": "Niger",
+    "BFA": "Burkina Faso",
+    "TGO": "Togo",
+    "GBR": "Royaume-Uni",
+    "CHN": "Chine",
+    "USA": "États-Unis",
+    "SEN": "Sénégal",
+    "GHA": "Ghana",
+    "MDG": "Madagascar",
+    "CIV": "Côte d'Ivoire",
+    "CMR": "Cameroun",
+    "RUS": "Russie",
+    "EU":  "Union européenne",
+    "EGY": "Égypte",
+    "ZAF": "Afrique du Sud",
+    "MAR": "Maroc",
+}
+
+DATE_MIN = date(2025, 1, 1)
+DATE_MAX = date(2025, 12, 31)
+
+MOIS_LABELS = {
+    0:  "Toute l'année",
+    1:  "Jan", 2:  "Fév", 3:  "Mar", 4:  "Avr",
+    5:  "Mai", 6:  "Jun", 7:  "Jul", 8:  "Aoû",
+    9:  "Sep", 10: "Oct", 11: "Nov", 12: "Déc",
+}
+
+# Dates anormales identifiées par approche multi-méthodes (Z-score + MAD + fenêtre glissante)
+DATES_ANOMALIES = {
+    "2025-01-10",
+    "2025-04-17",
+    "2025-12-07", "2025-12-08", "2025-12-09",
+    "2025-12-10", "2025-12-11", "2025-12-12",
+}
+
+# Sources vérifiées :
+# 2025-01-10 : Fête nationale du Vodoun (10 janv.) + Vodun Days à Ouidah
+#              — AFP, Global Voices, Africanews (janv. 2025)
+# 2025-04-17 : Attaque JNIM/GSIM dans le parc W (Bénin / Niger / Burkina Faso)
+#              — France 24 (23 avr. 2025), Euronews, OPEX360
+# 2025-12-07+ : Tentative de coup d'État (Lt.-Col. Pascal Tigri contre Patrice Talon)
+#              — France 24, Wikipedia FR/EN, Jeune Afrique, CBS News, Euronews
+DESCRIPTIONS_ANOMALIES = {
+    "2025-01-10": (
+        "Fête nationale du Vodoun et Vodun Days à Ouidah — "
+        "célébration de 3 jours, +300 000 visiteurs attendus"
+    ),
+    "2025-04-17": (
+        "Attaque du JNIM (Al-Qaïda) dans le parc W — "
+        "54 militaires béninois tués, plus grande perte de l'armée béninoise"
+    ),
+    "2025-12-07": (
+        "Tentative de coup d'État — Lt.-Col. Pascal Tigri attaque "
+        "la résidence de Talon, déjouée par la Garde républicaine"
+    ),
+    "2025-12-08": (
+        "Lendemain du coup — putschistes en fuite, aide militaire du Nigeria, "
+        "réactions France / CEDEAO / UA"
+    ),
+    "2025-12-09": (
+        "Traque des mutins — déclarations CEDEAO, soutien français "
+        "en renseignement confirmé par Macron"
+    ),
+    "2025-12-10": (
+        "Couverture internationale soutenue — "
+        "crise institutionnelle et sécuritaire au Bénin"
+    ),
+    "2025-12-11": (
+        "Arrestations — premières personnes écrouées, "
+        "Tigri toujours en cavale, enquête judiciaire ouverte"
+    ),
+    "2025-12-12": (
+        "Bilan judiciaire — une trentaine de personnes écrouées "
+        "(majorité militaires), mutins recherchés"
+    ),
+}
+
+# Bounding box Bénin pour filtrage géographique (lat/lon)
+BENIN_LAT = (5.5, 12.5)
+BENIN_LON = (0.5,  3.8)
+MAP_MAX_POINTS = 2000
+
+
+# ── CHARGEMENT DES DONNÉES ────────────────────────────────────────────────────
 
 @st.cache_data
 def charger_donnees():
-    try:
-        raise FileNotFoundError
-    except:
-        return generer_donnees_demo(), True
+    chemin_parquet = ROOT_DIR / "data/processed/benin_enrichi.parquet"
+    chemin_csv     = ROOT_DIR / "data/processed/benin_enrichi.csv"
+    if chemin_parquet.exists():
+        df = pd.read_parquet(chemin_parquet)
+    elif chemin_csv.exists():
+        df = pd.read_csv(chemin_csv)
+    else:
+        return None
+    df["SQLDATE"] = pd.to_datetime(df["SQLDATE"], errors="coerce")
+    return df
 
-df, mode_demo = charger_donnees()
 
-PAYS_NOMS = {'FR':'🇫🇷 France','US':'🇺🇸 États-Unis','NG':'🇳🇬 Nigeria','GB':'🇬🇧 Royaume-Uni',
-    'SN':'🇸🇳 Sénégal','CI':"🇨🇮 Côte d'Ivoire",'GH':'🇬🇭 Ghana','TG':'🇹🇬 Togo',
-    'DE':'🇩🇪 Allemagne','CN':'🇨🇳 Chine','MA':'🇲🇦 Maroc','CM':'🇨🇲 Cameroun',
-    'NE':'🇳🇪 Niger','BF':'🇧🇫 Burkina Faso','ML':'🇲🇱 Mali','ZA':'🇿🇦 Afrique du Sud',
-    'BE':'🇧🇪 Belgique','CA':'🇨🇦 Canada','RU':'🇷🇺 Russie','BR':'🇧🇷 Brésil'}
-CAMEO = {'01':'Déclarations','02':'Appels','03':'Intentions','04':'Consultations',
-    '05':'Diplomatie','06':'Coopération','07':'Aide humanitaire','10':'Revendications',
-    '11':'Rejets','12':'Accusations','13':'Protestations','14':'Manifestations',
-    '17':'Arrestations','19':'Violences'}
+# ── EN-TÊTE ───────────────────────────────────────────────────────────────────
 
-with st.sidebar:
-    st.markdown("<div style='text-align:center;padding:1rem 0 1.5rem;'><div style='font-size:2.5rem;'>🇧🇯</div><div style='font-family:Playfair Display,serif;font-size:1.1rem;color:#1D9E75;font-weight:700;'>Bénin Insights</div><div style='font-size:0.7rem;color:#666;text-transform:uppercase;'>GDELT · 2025–2026</div></div>", unsafe_allow_html=True)
-    st.markdown("### 🎛️ Filtres")
-    mois_dispo = sorted(df['mois'].unique())
-    m1, m2 = st.select_slider("Période", options=mois_dispo, value=(mois_dispo[0], mois_dispo[-1]))
-    tous_pays = sorted(df['Actor1CountryCode'].dropna().unique())
-    pays_sel = st.multiselect("Pays sources", options=tous_pays, format_func=lambda x: PAYS_NOMS.get(x,x), default=tous_pays[:8])
-    if not pays_sel: pays_sel = tous_pays
-    df['erc'] = df['EventRootCode'].astype(str).str.zfill(2)
-    tous_evt = sorted(df['erc'].unique())
-    evt_sel = st.multiselect("Types d'événements", options=tous_evt, format_func=lambda x: CAMEO.get(x,f'Code {x}'), default=tous_evt)
-    if not evt_sel: evt_sel = tous_evt
-    st.markdown("---")
-    st.warning("⚠️ Mode démo") if mode_demo else st.success("✅ Données GDELT")
-    st.markdown("<div style='font-size:0.75rem;color:#555;margin-top:1rem;'>iSHEERO × DataCamp 2026<br>Deadline : <strong style='color:#E85555;'>5 mai 23h59</strong></div>", unsafe_allow_html=True)
+_armoiries = ASSETS_DIR / "armoiries_benin.png"
+col_logo, col_titre = st.columns([1, 11])
+with col_logo:
+    if _armoiries.exists():
+        try:
+            st.image(str(_armoiries), width=72)
+        except Exception:
+            pass
+with col_titre:
+    st.markdown("## Bénin Insights 2025")
+    st.markdown(
+        "**iSHEERO × DataCamp Hackathon 2026** "
+        "— Couverture médiatique internationale du Bénin · Source : GDELT"
+    )
 
-dff = df[(df['mois']>=m1)&(df['mois']<=m2)&(df['Actor1CountryCode'].isin(pays_sel))&(df['erc'].isin(evt_sel))].copy()
+st.divider()
 
-c1,c2 = st.columns([3,1])
-with c1:
-    st.markdown("<div class='hero-title'>Bénin <span class='hero-accent'>Insights</span><br>Dashboard</div><div class='hero-sub'>iSHEERO × DataCamp Donates · Hackathon 2026</div>", unsafe_allow_html=True)
-with c2:
-    st.markdown(f"<div style='text-align:right;padding-top:1rem;'><div style='font-size:0.75rem;color:#555;text-transform:uppercase;'>Période sélectionnée</div><div style='font-size:1rem;color:#1D9E75;'>{m1} → {m2}</div><div style='font-size:0.75rem;color:#555;margin-top:0.5rem;'>{len(dff):,} événements</div></div>", unsafe_allow_html=True)
+df = charger_donnees()
 
-st.markdown("<hr class='custom-divider'>", unsafe_allow_html=True)
+if df is None:
+    st.error(
+        "Fichier de données introuvable. "
+        "Exécutez d'abord `Pipeline.py` pour générer `data/processed/benin_enrichi.parquet`."
+    )
+    st.stop()
 
-k1,k2,k3,k4 = st.columns(4)
-tm = dff['AvgTone'].mean() if len(dff)>0 else 0
-gm = dff['GoldsteinScale'].mean() if len(dff)>0 else 0
-np2 = dff['Actor1CountryCode'].nunique()
-with k1: st.markdown(f"<div class='kpi-card'><div class='kpi-value'>{len(dff):,}</div><div class='kpi-label'>Événements analysés</div><div class='kpi-delta'>période sélectionnée</div></div>", unsafe_allow_html=True)
-with k2:
-    cc = '#E85555' if tm<0 else '#1D9E75'
-    st.markdown(f"<div class='kpi-card'><div class='kpi-value' style='color:{cc};'>{tm:.2f}</div><div class='kpi-label'>Ton médiatique moyen</div><div class='kpi-delta'>{'↘ Négatif' if tm<0 else '↗ Positif'}</div></div>", unsafe_allow_html=True)
-with k3:
-    cc2 = '#E85555' if gm<0 else '#1D9E75'
-    st.markdown(f"<div class='kpi-card'><div class='kpi-value' style='color:{cc2};'>{gm:.2f}</div><div class='kpi-label'>Score de Goldstein</div><div class='kpi-delta'>{'⚠️ Instabilité' if gm<0 else '✅ Stabilité'}</div></div>", unsafe_allow_html=True)
-with k4: st.markdown(f"<div class='kpi-card'><div class='kpi-value'>{np2}</div><div class='kpi-label'>Pays sources actifs</div><div class='kpi-delta'>médias couvrant le Bénin</div></div>", unsafe_allow_html=True)
 
-st.markdown("<hr class='custom-divider'>", unsafe_allow_html=True)
+# ── FILTRES TEMPORELS HORIZONTAUX ─────────────────────────────────────────────
 
-st.markdown("<div class='section-title'>📈 Évolution de la couverture médiatique</div><hr class='section-line'>", unsafe_allow_html=True)
-dm = dff.groupby('mois').size().reset_index(name='nb').sort_values('mois')
-if len(dm)>0:
-    moy = dm['nb'].mean(); imax = dm['nb'].idxmax()
-    f1 = go.Figure()
-    f1.add_trace(go.Scatter(x=dm['mois'],y=dm['nb'],fill='tozeroy',fillcolor='rgba(29,158,117,0.12)',line=dict(color='#1D9E75',width=2.5),mode='lines+markers',marker=dict(size=7,color='#1D9E75'),hovertemplate='<b>%{x}</b><br>%{y} événements<extra></extra>'))
-    f1.add_hline(y=moy,line_dash='dash',line_color='#F59E0B',line_width=1.5,annotation_text=f'Moy:{moy:.0f}',annotation_position='top right',annotation_font_color='#F59E0B')
-    f1.add_annotation(x=dm.loc[imax,'mois'],y=dm.loc[imax,'nb'],text=f"📍 Pic:{dm.loc[imax,'nb']}",showarrow=True,arrowhead=2,arrowcolor='#1D9E75',bgcolor='#1a2a24',bordercolor='#1D9E75',font=dict(color='#1D9E75',size=11))
-    f1.update_layout(paper_bgcolor='rgba(0,0,0,0)',plot_bgcolor='rgba(0,0,0,0)',font=dict(color='#888780'),xaxis=dict(tickangle=-45,gridcolor='#1a1a1a'),yaxis=dict(gridcolor='#1a1a1a'),height=340,margin=dict(l=10,r=10,t=20,b=60),hovermode='x unified',showlegend=False)
-    st.plotly_chart(f1,use_container_width=True)
-    st.markdown(f"<div class='insight-box'><strong>💡 Insight :</strong> Moyenne de <strong>{moy:.0f} événements/mois</strong>. Pic en <strong>{dm.loc[imax,'mois']}</strong> avec {dm.loc[imax,'nb']} événements.</div>", unsafe_allow_html=True)
+st.markdown("**Période d'analyse**")
+col_mois, col_dates = st.columns([7, 3])
 
-st.markdown("<hr class='custom-divider'>", unsafe_allow_html=True)
+with col_mois:
+    mois_sel = st.radio(
+        "Mois :",
+        options=list(MOIS_LABELS.keys()),
+        format_func=lambda x: MOIS_LABELS[x],
+        horizontal=True,
+        index=0,
+        key="mois_radio",
+    )
 
-cv2,cv3 = st.columns([1,1],gap="large")
-with cv2:
-    st.markdown("<div class='section-title'>🗺️ Carte des événements</div><hr class='section-line'>", unsafe_allow_html=True)
-    dg = dff.dropna(subset=['ActionGeo_Lat','ActionGeo_Long']).copy()
-    dg = dg[dg['ActionGeo_Lat'].between(6.0,12.5)&dg['ActionGeo_Long'].between(0.5,3.9)]
-    if len(dg)>0:
-        dgg = dg.groupby(['ActionGeo_Lat','ActionGeo_Long','ActionGeo_FullName']).agg(nb=('ActionGeo_Lat','count'),tone=('AvgTone','mean')).reset_index()
-        fm = px.scatter_mapbox(dgg,lat='ActionGeo_Lat',lon='ActionGeo_Long',size='nb',color='tone',hover_name='ActionGeo_FullName',hover_data={'nb':True,'tone':':.1f','ActionGeo_Lat':False,'ActionGeo_Long':False},color_continuous_scale='RdYlGn',color_continuous_midpoint=0,size_max=40,zoom=5.8,center={'lat':9.3,'lon':2.3},mapbox_style='carto-darkmatter',height=380)
-        fm.update_layout(paper_bgcolor='rgba(0,0,0,0)',margin=dict(l=0,r=0,t=0,b=0))
-        st.plotly_chart(fm,use_container_width=True)
-        tl = dgg.nlargest(1,'nb').iloc[0]
-        st.markdown(f"<div class='insight-box'><strong>💡 Insight :</strong> Zone la plus couverte : <strong>{tl['ActionGeo_FullName']}</strong> — {int(tl['nb'])} événements.</div>", unsafe_allow_html=True)
+with col_dates:
+    if mois_sel == 0:
+        periode = st.date_input(
+            "Plage de dates :",
+            value=(DATE_MIN, DATE_MAX),
+            min_value=DATE_MIN,
+            max_value=DATE_MAX,
+            format="DD/MM/YYYY",
+            key="plage_dates",
+        )
+    else:
+        st.caption(f"Filtre actif : **{MOIS_LABELS[mois_sel]} 2025**")
+        periode = None
 
-with cv3:
-    st.markdown("<div class='section-title'>🌍 Pays qui citent le Bénin</div><hr class='section-line'>", unsafe_allow_html=True)
-    tp = dff['Actor1CountryCode'].value_counts().head(12).reset_index()
-    tp.columns=['code','count']
-    tp['label'] = tp['code'].map(PAYS_NOMS).fillna(tp['code'])
-    tp = tp.sort_values('count',ascending=True)
-    afr = ['NG','SN','CI','GH','TG','NE','CM','ML','BF','MA','ZA','ET','BJ','GN']
-    tp['color'] = tp['code'].apply(lambda x:'#1D9E75' if x in afr else '#3B7DD8')
-    f3 = go.Figure(go.Bar(x=tp['count'],y=tp['label'],orientation='h',marker_color=tp['color'],text=tp['count'],textposition='outside',textfont=dict(color='#888780',size=11),hovertemplate='<b>%{y}</b><br>%{x} événements<extra></extra>'))
-    f3.update_layout(paper_bgcolor='rgba(0,0,0,0)',plot_bgcolor='rgba(0,0,0,0)',font=dict(color='#888780'),xaxis=dict(gridcolor='#1a1a1a'),yaxis=dict(tickfont=dict(color='#E8E8E6',size=12)),height=380,margin=dict(l=10,r=40,t=10,b=20),showlegend=False)
-    st.plotly_chart(f3,use_container_width=True)
-    t1=tp.iloc[-1]; pct=tp.tail(3)['count'].sum()/tp['count'].sum()*100
-    st.markdown(f"<div class='insight-box'><strong>💡 Insight :</strong> <strong>{t1['label']}</strong> domine. Top 3 = <strong>{pct:.0f}%</strong> de l'attention mondiale.</div>", unsafe_allow_html=True)
+st.divider()
 
-st.markdown("<hr class='custom-divider'>", unsafe_allow_html=True)
-st.markdown("<div class='section-title'>⚖️ Stabilité — Score de Goldstein</div><hr class='section-line'>", unsafe_allow_html=True)
-dg2 = dff.groupby('mois')['GoldsteinScale'].mean().reset_index()
-dg2.columns=['mois','score']
-dg2 = dg2.sort_values('mois')
-dg2['lisse'] = dg2['score'].rolling(3,center=True,min_periods=1).mean()
-if len(dg2)>0:
-    sg = dg2['score'].mean()
-    f5 = go.Figure()
-    f5.add_trace(go.Bar(x=dg2['mois'],y=dg2['score'],name='Score mensuel',marker_color=['rgba(232,85,85,0.35)' if v<0 else 'rgba(29,158,117,0.35)' for v in dg2['score']],hovertemplate='<b>%{x}</b><br>%{y:.2f}<extra></extra>'))
-    f5.add_trace(go.Scatter(x=dg2['mois'],y=dg2['lisse'],mode='lines+markers',line=dict(color='#F59E0B',width=3),marker=dict(size=7,color='#F59E0B'),name='Tendance'))
-    f5.add_hline(y=0,line_dash='dash',line_color='#555',line_width=1,annotation_text='Neutralité',annotation_font_color='#555')
-    f5.update_layout(paper_bgcolor='rgba(0,0,0,0)',plot_bgcolor='rgba(0,0,0,0)',font=dict(color='#888780'),xaxis=dict(tickangle=-45,gridcolor='#1a1a1a'),yaxis=dict(gridcolor='#1a1a1a'),height=320,margin=dict(l=10,r=10,t=10,b=60),legend=dict(orientation='h',yanchor='bottom',y=1.02,font=dict(color='#888780')))
-    st.plotly_chart(f5,use_container_width=True)
-    cc3='#E85555' if sg<0 else '#1D9E75'
-    st.markdown(f"<div class='insight-box'><strong>💡 Insight :</strong> Score moyen <strong style='color:{cc3};'>{sg:.2f}/10</strong>. Contexte globalement <strong>{'instable ⚠️' if sg<0 else 'stable ✅'}</strong>.</div>", unsafe_allow_html=True)
+# ── FILTRES THÉMATIQUES (SIDEBAR) ─────────────────────────────────────────────
 
-st.markdown("<hr class='custom-divider'>", unsafe_allow_html=True)
-st.markdown(f"<div style='text-align:center;padding:1.5rem 0;font-size:0.8rem;color:#444;'>🇧🇯 <strong style='color:#1D9E75;'>Bénin Insights Dashboard</strong> · iSHEERO × DataCamp 2026 · {'⚠️ Mode démo' if mode_demo else '✅ Données GDELT'}</div>", unsafe_allow_html=True)
+st.sidebar.header("Filtres thématiques")
+
+tons = sorted(df["ton_categorie"].dropna().unique().tolist())
+ton_sel = st.sidebar.multiselect(
+    "Ton médiatique",
+    options=tons,
+    format_func=lambda x: LABELS_TON.get(x, x),
+    default=tons,
+)
+
+quadclasses = sorted(df["quadclass_label"].dropna().unique().tolist())
+quad_sel = st.sidebar.multiselect(
+    "Type d'événement",
+    options=quadclasses,
+    format_func=lambda x: LABELS_QUAD.get(x, x),
+    default=quadclasses,
+)
+
+# ── APPLICATION DES FILTRES ───────────────────────────────────────────────────
+
+if mois_sel != 0:
+    df_date = df[df["SQLDATE"].dt.month == mois_sel]
+else:
+    if isinstance(periode, (list, tuple)) and len(periode) == 2:
+        d_start = pd.Timestamp(periode[0])
+        d_end   = pd.Timestamp(periode[1])
+    elif isinstance(periode, date):
+        d_start = d_end = pd.Timestamp(periode)
+    else:
+        d_start = pd.Timestamp(DATE_MIN)
+        d_end   = pd.Timestamp(DATE_MAX)
+    df_date = df[(df["SQLDATE"] >= d_start) & (df["SQLDATE"] <= d_end)]
+
+df_filtre = df_date[
+    df_date["ton_categorie"].isin(ton_sel)
+    & df_date["quadclass_label"].isin(quad_sel)
+]
+
+vide = len(df_filtre) == 0
+
+# ── SECTION 1 — VUE D'ENSEMBLE ────────────────────────────────────────────────
+
+st.subheader("Vue d'ensemble")
+col1, col2, col3, col4 = st.columns(4)
+with col1:
+    st.metric("Événements", f"{len(df_filtre):,}" if not vide else "—")
+with col2:
+    val = f"{df_filtre['AvgTone'].mean():.2f}" if not vide else "—"
+    st.metric("Ton médiatique moyen", val)
+with col3:
+    val = f"{df_filtre['GoldsteinScale'].mean():.2f}" if not vide else "—"
+    st.metric("Score Goldstein moyen", val)
+with col4:
+    val = str(df_filtre["SQLDATE"].dt.date.nunique()) if not vide else "—"
+    st.metric("Jours couverts", val)
+
+st.caption(
+    "Ton : −100 (très négatif) → +100 (très positif)   ·   "
+    "Goldstein : −10 (déstabilisant) → +10 (stabilisant)"
+)
+st.divider()
+
+# ── SECTION 2 — ÉVOLUTION TEMPORELLE ─────────────────────────────────────────
+
+st.subheader("Évolution temporelle")
+col_ton, col_gold = st.columns(2)
+
+with col_ton:
+    if not vide:
+        tone_mensuel = (
+            df_filtre.groupby("mois_annee")["AvgTone"]
+            .mean().reset_index().sort_values("mois_annee")
+            .rename(columns={"mois_annee": "Mois", "AvgTone": "Ton moyen"})
+        )
+        fig1 = px.line(
+            tone_mensuel, x="Mois", y="Ton moyen", markers=True,
+            title="Ton médiatique mensuel (AvgTone)",
+        )
+        fig1.add_hline(y=0, line_dash="dash", line_color="gray", annotation_text="0")
+        st.plotly_chart(fig1, use_container_width=True)
+    else:
+        st.info("Aucune donnée pour les filtres sélectionnés.")
+
+with col_gold:
+    if not vide:
+        gold_mensuel = (
+            df_filtre.groupby("mois_annee")["GoldsteinScale"]
+            .mean().reset_index().sort_values("mois_annee")
+            .rename(columns={"mois_annee": "Mois", "GoldsteinScale": "Goldstein moyen"})
+        )
+        fig_gold = px.line(
+            gold_mensuel, x="Mois", y="Goldstein moyen", markers=True,
+            title="Stabilité géopolitique — score Goldstein",
+            color_discrete_sequence=["#2ca02c"],
+        )
+        fig_gold.add_hline(y=0, line_dash="dash", line_color="gray", annotation_text="0")
+        st.plotly_chart(fig_gold, use_container_width=True)
+    else:
+        st.info("Aucune donnée pour les filtres sélectionnés.")
+
+st.divider()
+
+# ── SECTION 3 — MOMENTS MARQUANTS ─────────────────────────────────────────────
+# Calculé sur le dataset complet — résultats fixes, indépendants des filtres actifs
+
+st.subheader("Moments marquants de 2025")
+
+df_anom = df[df["SQLDATE"].dt.strftime("%Y-%m-%d").isin(DATES_ANOMALIES)]
+if len(df_anom) > 0:
+    stats_anom = (
+        df_anom.groupby(df_anom["SQLDATE"].dt.strftime("%Y-%m-%d"))
+        .agg(
+            Événements=("GLOBALEVENTID", "count"),
+            Mentions=("NumMentions", "sum"),
+            ton_moyen=("AvgTone", "mean"),
+            goldstein_moyen=("GoldsteinScale", "mean"),
+        )
+        .reset_index()
+        .rename(columns={"SQLDATE": "Date"})
+        .sort_values("Date")
+    )
+    stats_anom["Ton moyen"]       = stats_anom["ton_moyen"].round(2)
+    stats_anom["Goldstein moyen"] = stats_anom["goldstein_moyen"].round(2)
+    stats_anom["Événement probable"] = stats_anom["Date"].map(DESCRIPTIONS_ANOMALIES)
+    stats_anom = stats_anom[[
+        "Date", "Événements", "Mentions",
+        "Ton moyen", "Goldstein moyen", "Événement probable",
+    ]]
+    st.dataframe(stats_anom.set_index("Date"), use_container_width=True)
+
+st.caption(
+    "Dates détectées par approche multi-méthodes (Z-score + MAD + fenêtre glissante) — "
+    "notebook EDA section 7   ·   "
+    "Événements : sources AFP, France 24, Euronews, Jeune Afrique (2025)"
+)
+st.write("")
+
+if not vide:
+    volume_quotidien = (
+        df_filtre.dropna(subset=["SQLDATE"])
+        .groupby(df_filtre["SQLDATE"].dt.date)
+        .size().reset_index(name="Événements")
+        .rename(columns={"SQLDATE": "Date"})
+    )
+    volume_quotidien["Date"] = pd.to_datetime(volume_quotidien["Date"])
+
+    fig2 = px.line(
+        volume_quotidien, x="Date", y="Événements",
+        title="Volume d'événements par jour",
+    )
+    anomalies_visibles = volume_quotidien[
+        volume_quotidien["Date"].dt.strftime("%Y-%m-%d").isin(DATES_ANOMALIES)
+    ]
+    if len(anomalies_visibles) > 0:
+        fig2.add_scatter(
+            x=anomalies_visibles["Date"],
+            y=anomalies_visibles["Événements"],
+            mode="markers",
+            marker=dict(color="crimson", size=10, symbol="x"),
+            name="Date anormale",
+        )
+    st.plotly_chart(fig2, use_container_width=True)
+else:
+    st.info("Aucune donnée pour les filtres sélectionnés.")
+
+st.divider()
+
+# ── SECTION 4 — CARTE DES ÉVÉNEMENTS ──────────────────────────────────────────
+
+st.subheader("Carte des événements au Bénin")
+
+df_geo = df_filtre.dropna(subset=["ActionGeo_Lat", "ActionGeo_Long"]).copy()
+df_geo = df_geo[
+    (df_geo["ActionGeo_Lat"]  >= BENIN_LAT[0]) & (df_geo["ActionGeo_Lat"]  <= BENIN_LAT[1]) &
+    (df_geo["ActionGeo_Long"] >= BENIN_LON[0]) & (df_geo["ActionGeo_Long"] <= BENIN_LON[1])
+]
+
+if vide or len(df_geo) == 0:
+    st.info(
+        "Aucune coordonnée géographique disponible pour les filtres sélectionnés. "
+        "Les événements sans localisation précise (hors bounding box Bénin) sont exclus."
+    )
+else:
+    n_total = len(df_geo)
+    if n_total > MAP_MAX_POINTS:
+        df_geo = df_geo.sample(MAP_MAX_POINTS, random_state=42)
+
+    df_geo["Zone"]   = df_geo["zone_benin"].map(LABELS_ZONES).fillna("Inconnu")
+    df_geo["Taille"] = (df_geo["NumMentions"].clip(upper=100).fillna(5) / 10 + 4).round(1)
+    df_geo["Lieu"]   = df_geo["ActionGeo_FullName"].fillna("Localisation inconnue")
+
+    fig_map = px.scatter_mapbox(
+        df_geo,
+        lat="ActionGeo_Lat",
+        lon="ActionGeo_Long",
+        color="AvgTone",
+        color_continuous_scale="RdYlGn",
+        color_continuous_midpoint=0,
+        range_color=[-6, 6],
+        size="Taille",
+        size_max=14,
+        hover_name="Lieu",
+        hover_data={
+            "AvgTone":        ":.2f",
+            "Zone":           True,
+            "Taille":         False,
+            "ActionGeo_Lat":  False,
+            "ActionGeo_Long": False,
+        },
+        zoom=5.5,
+        center={"lat": 9.3, "lon": 2.3},
+        mapbox_style="carto-positron",
+        title=(
+            f"Localisation des événements — {len(df_geo):,} points"
+            + (f" (échantillon sur {n_total:,})" if n_total > MAP_MAX_POINTS else "")
+        ),
+        labels={"AvgTone": "Ton"},
+    )
+    fig_map.update_layout(height=520, margin={"r": 0, "l": 0, "t": 40, "b": 0})
+    st.plotly_chart(fig_map, use_container_width=True)
+    st.caption(
+        "Couleur : ton médiatique — rouge = négatif · vert = positif   ·   "
+        "Taille : volume de mentions   ·   "
+        "Coordonnées : ActionGeo_Lat / ActionGeo_Long (GDELT)"
+    )
+
+    # Export pour le PowerPoint
+    with st.expander("Exporter la carte pour le pitch (PNG)"):
+        st.markdown(
+            "Génère `outputs/carte_benin_pitch.png` à insérer dans le PowerPoint.\n\n"
+            "Nécessite `kaleido` (`pip install kaleido`) ou utilise matplotlib en fallback."
+        )
+        if st.button("Générer carte_benin_pitch.png"):
+            OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+            out_path = OUTPUTS_DIR / "carte_benin_pitch.png"
+            exported = False
+
+            # Tentative 1 : kaleido (meilleure qualité)
+            try:
+                import plotly.io as pio
+                pio.write_image(fig_map, str(out_path), width=1400, height=800, scale=2)
+                exported = True
+                st.success(f"Carte exportée (kaleido) : `{out_path}`")
+            except Exception:
+                pass
+
+            # Tentative 2 : matplotlib (sans dépendance kaleido)
+            if not exported:
+                try:
+                    import matplotlib
+                    matplotlib.use("Agg")
+                    import matplotlib.pyplot as plt
+
+                    fig_mpl, ax = plt.subplots(figsize=(12, 9))
+                    sc = ax.scatter(
+                        df_geo["ActionGeo_Long"],
+                        df_geo["ActionGeo_Lat"],
+                        c=df_geo["AvgTone"],
+                        cmap="RdYlGn",
+                        vmin=-6, vmax=6,
+                        s=df_geo["Taille"] * 12,
+                        alpha=0.65,
+                        edgecolors="none",
+                    )
+                    plt.colorbar(sc, ax=ax, label="Ton médiatique (AvgTone)")
+                    ax.set_xlim(BENIN_LON[0] - 0.2, BENIN_LON[1] + 0.2)
+                    ax.set_ylim(BENIN_LAT[0] - 0.2, BENIN_LAT[1] + 0.2)
+                    ax.set_title(
+                        "Événements médiatiques au Bénin — 2025",
+                        fontsize=14, pad=12,
+                    )
+                    ax.set_xlabel("Longitude")
+                    ax.set_ylabel("Latitude")
+                    ax.grid(True, alpha=0.25, linestyle="--")
+                    plt.tight_layout()
+                    plt.savefig(str(out_path), dpi=150, bbox_inches="tight")
+                    plt.close()
+                    exported = True
+                    st.success(f"Carte exportée (matplotlib) : `{out_path}`")
+                except Exception as e2:
+                    st.error(f"Export impossible : {e2}")
+
+st.divider()
+
+# ── SECTION 5 — GÉOGRAPHIE INTERNE ───────────────────────────────────────────
+
+st.subheader("Géographie interne — nord, centre, sud")
+
+if not vide:
+    zones = (
+        df_filtre.groupby("zone_benin")
+        .agg(
+            nb_evenements=("GLOBALEVENTID", "count"),
+            ton_moyen=("AvgTone", "mean"),
+            goldstein_moyen=("GoldsteinScale", "mean"),
+        )
+        .reset_index()
+    )
+    zones["Zone"]            = zones["zone_benin"].map(LABELS_ZONES)
+    zones["Ton moyen"]       = zones["ton_moyen"].round(2)
+    zones["Goldstein moyen"] = zones["goldstein_moyen"].round(2)
+
+    fig3 = px.bar(
+        zones.sort_values("ton_moyen"),
+        x="Ton moyen", y="Zone", orientation="h",
+        title="Ton médiatique moyen par zone",
+        color="Ton moyen",
+        color_continuous_scale="RdYlGn",
+        color_continuous_midpoint=0,
+        text="Ton moyen",
+    )
+    fig3.add_vline(x=0, line_dash="dash", line_color="gray")
+    fig3.update_traces(textposition="outside")
+    st.plotly_chart(fig3, use_container_width=True)
+
+    zones_display = zones[["Zone", "nb_evenements", "Ton moyen", "Goldstein moyen"]].copy()
+    zones_display.columns = ["Zone", "Nb événements", "Ton moyen", "Goldstein moyen"]
+    st.dataframe(zones_display.set_index("Zone"), use_container_width=True)
+else:
+    st.info("Aucune donnée pour les filtres sélectionnés.")
+
+st.divider()
+
+# ── SECTION 6 — NARRATIFS ET ACTEURS ─────────────────────────────────────────
+
+st.subheader("Narratifs et acteurs")
+col_left, col_right = st.columns(2)
+
+with col_left:
+    st.markdown("**Types d'événements**")
+    if not vide:
+        quad_counts = (
+            df_filtre.groupby("quadclass_label")
+            .size().reset_index(name="Nb")
+            .sort_values("Nb", ascending=False)
+        )
+        quad_counts["Type"] = (
+            quad_counts["quadclass_label"]
+            .map(LABELS_QUAD)
+            .fillna(quad_counts["quadclass_label"])
+        )
+        fig4 = px.bar(
+            quad_counts, x="Nb", y="Type", orientation="h",
+            title="Répartition par type d'événement",
+            labels={"Nb": "Nb d'événements", "Type": ""},
+        )
+        fig4.update_layout(yaxis={"categoryorder": "total ascending"})
+        st.plotly_chart(fig4, use_container_width=True)
+    else:
+        st.info("Aucune donnée.")
+
+with col_right:
+    st.markdown("**Pays impliqués dans les événements (hors Bénin)**")
+    if not vide:
+        top_acteurs = (
+            df_filtre[df_filtre["Actor1CountryCode"] != "BEN"]["Actor1CountryCode"]
+            .value_counts().head(10).reset_index()
+        )
+        top_acteurs.columns = ["Code", "Nb"]
+        top_acteurs["Pays"] = (
+            top_acteurs["Code"].map(NOMS_PAYS).fillna(top_acteurs["Code"])
+        )
+        fig5 = px.bar(
+            top_acteurs, x="Nb", y="Pays", orientation="h",
+            title="Top 10 pays des acteurs impliqués",
+            labels={"Nb": "Nb d'événements", "Pays": ""},
+        )
+        fig5.update_layout(yaxis={"categoryorder": "total ascending"})
+        st.plotly_chart(fig5, use_container_width=True)
+        st.caption(
+            "Ces pays correspondent aux acteurs des événements, "
+            "pas aux pays sources des médias."
+        )
+    else:
+        st.info("Aucune donnée.")
+
+st.divider()
+st.caption(
+    "Source : GDELT Project · iSHEERO × DataCamp Hackathon 2026 · Équipe 04   ·   "
+    "Événements contextuels : AFP, France 24, Euronews, Jeune Afrique"
+)
