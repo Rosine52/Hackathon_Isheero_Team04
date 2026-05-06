@@ -1,0 +1,45 @@
+{
+  "model_type": "RandomForestClassifier",
+  "version": "J4_corrige",
+  "leakage_fixed": [
+    "AvgTone_scaled retiré : transformation directe de la cible",
+    "tension_score_scaled retiré : contenait abs(AvgTone)",
+    "sentiment_tb_score retiré : simulé depuis AvgTone / 10 + bruit"
+  ],
+  "features_clean": [
+    "GoldsteinScale_scaled",
+    "tension_score_v2_scaled",
+    "media_intensity_scaled",
+    "NumMentions_scaled",
+    "EventRootCode_enc",
+    "Actor1Type1Code_enc",
+    "Actor1CountryCode_enc",
+    "QuadClass",
+    "month"
+  ],
+  "n_features": 9,
+  "hyperparameters": {
+    "class_weight": "balanced",
+    "max_depth": "15",
+    "max_features": "log2",
+    "min_samples_leaf": "1",
+    "min_samples_split": "5",
+    "n_estimators": "393"
+  },
+  "metrics_test": {
+    "accuracy": 0.6028,
+    "f1_weighted": 0.6033,
+    "precision_weighted": 0.6143,
+    "recall_weighted": 0.6028,
+    "auc_roc_macro": 0.7768
+  },
+  "cross_validation": {
+    "n_folds": 5,
+    "f1_mean": 0.5674,
+    "f1_std": 0.0148,
+    "gap_test_cv": 0.0359
+  },
+  "training_set_size": 8577,
+  "test_set_size": 2145,
+  "timestamp": "2026-05-06 14:31"
+}
